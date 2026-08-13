@@ -90,11 +90,9 @@ server/
 
 Sayaç açıkken yalnızca **başlangıç zamanı** localStorage'a (`zt:timer:<kullanıcı_id>`)
 yazılır. Ekranda gösterilen süre her zaman `şimdi - başlangıç` farkından hesaplanır;
-`setInterval` sadece ekranı saniyede bir tazelemek için çalışır. Bu yüzden:
-
-- Sekme kapatılıp açılsa süre kaybolmaz.
-- Bilgisayar uyku moduna girse bile süre doğru kalır.
-- Arka plan sekmelerinde tarayıcı `setInterval`'i kıssa da sapma olmaz.
+`setInterval` sadece ekranı saniyede bir tazelemek için çalışır. Bu yüzden bilgisayar
+uyku moduna girse veya tarayıcı arka plan sekmesinde `setInterval`'i kıssa da süre
+sapmaz.
 
 Anahtar kullanıcı kimliğini içerdiği için aynı tarayıcıda farklı hesaplara geçildiğinde
 sayaçlar birbirine karışmaz. Aynı hesabın açık diğer sekmeleri `storage` olayıyla
@@ -102,6 +100,32 @@ senkron kalır.
 
 "Bitir"e basıldığında oturum veritabanına yazılır ve localStorage temizlenir. Kayıt
 sırasında bir hata olursa sayaç durmaz, böylece süre kaybolmaz.
+
+### Sekme kapatılınca sayaç durur
+
+Sayfa **yenilendiğinde** sayaç kaldığı yerden devam eder, ancak sekme **tamamen
+kapatıldığında** oturum kapanma anında bitirilmiş sayılır ve uygulama bir daha
+açıldığında veritabanına yazılır. Sayaç bileşeninde bunu bildiren bir satır çıkar
+("Sekme kapandığı için sayaç 01:00'de durduruldu, 8s 00dk kaydedildi").
+
+Bu üç durumu ayırt etmek için:
+
+- **Yenileme mi, kapanma mı?** `sessionStorage`'daki sekme işareti yenilemede korunur,
+  sekme kapanınca silinir.
+- **Başka sekme açık mı?** Uygulama açılışta `BroadcastChannel` üzerinden diğer sekmelere
+  "açık mısın?" diye sorar. Cevap gelirse sayaç durdurulmaz — ikinci bir sekme açmak
+  çalışan sayacı öldürmez. Kapanışı yakalamak için `pagehide`'a *güvenilmez*: sekme
+  kapatılırken bu olay tetiklenmeyebiliyor.
+- **Ne zaman durduruldu?** Açık her sekme 5 saniyede bir localStorage'a canlılık damgası
+  yazar; oturum, bu son damganın zamanında bitirilir. `pagehide` tetiklenebilirse damga
+  daha da hassaslaşır.
+
+Kayıt önce localStorage'da "bekleyen" olarak tutulur, sunucuya yazılınca silinir. API o
+sırada erişilemezse kayıt kuyrukta kalır ve sonraki açılışta yeniden denenir.
+
+> Not: Bu davranış, ilk şartnamedeki "sekme kapatılıp açılsa bile sayaç korunmalıdır"
+> maddesinin yerini alır. Yenileme/gezinme hâlâ sayacı korur; yalnızca sekmenin
+> kapatılması onu sonlandırır.
 
 ## API
 

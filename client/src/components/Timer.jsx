@@ -1,8 +1,23 @@
 import { useTimer } from '../hooks/useTimer.js'
-import { formatClock, formatStopwatch } from '../lib/time.js'
+import { formatClock, formatDuration, formatStopwatch } from '../lib/time.js'
 
 export default function Timer() {
-  const { running, startedAt, elapsedSeconds, saving, error, start, stop, discard } = useTimer()
+  const {
+    running,
+    startedAt,
+    elapsedSeconds,
+    saving,
+    error,
+    autoStopped,
+    dismissAutoStopped,
+    start,
+    stop,
+    discard,
+  } = useTimer()
+
+  const autoStoppedSeconds = autoStopped
+    ? Math.round((Date.parse(autoStopped.end_time) - Date.parse(autoStopped.start_time)) / 1000)
+    : 0
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -41,6 +56,20 @@ export default function Timer() {
       )}
 
       {error && <p className="max-w-xs text-right text-xs text-rose-600">{error}</p>}
+
+      {autoStopped && (
+        <p className="max-w-xs text-right text-xs text-slate-500">
+          Sekme kapandığı için sayaç {formatClock(autoStopped.end_time)}'de durduruldu,{' '}
+          {formatDuration(autoStoppedSeconds)} kaydedildi.{' '}
+          <button
+            type="button"
+            onClick={dismissAutoStopped}
+            className="underline underline-offset-2 hover:text-slate-800"
+          >
+            tamam
+          </button>
+        </p>
+      )}
     </div>
   )
 }
