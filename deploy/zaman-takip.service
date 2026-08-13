@@ -1,0 +1,41 @@
+# systemd birim dosyası — sunucuda /etc/systemd/system/zaman-takip.service olarak kurulur.
+#
+#   sudo cp deploy/zaman-takip.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now zaman-takip
+#
+# Kullanıcı adı ve yol farklıysa aşağıdaki User/WorkingDirectory satırlarını düzeltin.
+
+[Unit]
+Description=Zaman Takip ve Not Uygulaması
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/zaman-takip-uygulamasi
+
+# Gizli değerler server/.env dosyasından okunur; uygulama bu dosyayı kendisi yükler.
+# (systemd'nin EnvironmentFile biçimi boşluklu değerlerle iyi anlaşmadığı için
+# .env'i systemd'ye okutmuyoruz.)
+Environment=NODE_ENV=production
+Environment=PORT=3001
+
+# npm yerine doğrudan node: systemd'nin izlediği süreç gerçek uygulama olsun,
+# araya fazladan bir npm süreci girmesin.
+ExecStart=/usr/bin/node server/src/index.js
+Restart=always
+RestartSec=5
+
+# Basit sıkılaştırma: uygulamanın kendi klasörü dışına yazmasına gerek yok.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zaman-takip
+
+[Install]
+WantedBy=multi-user.target

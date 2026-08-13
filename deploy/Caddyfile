@@ -1,0 +1,26 @@
+# Caddy ters vekil yapılandırması — sunucuda /etc/caddy/Caddyfile olarak kurulur.
+#
+# Alan adını kendi adresinizle değiştirin. Caddy, Let's Encrypt sertifikasını
+# otomatik alır ve yeniler; ayrıca HTTP'yi HTTPS'e yönlendirir.
+#
+# Alan adınız yoksa duckdns.org gibi ücretsiz bir alt alan adı alabilirsiniz.
+# HTTPS olmadan giriş yapmayın: şifreler ağ üzerinde açık metin gider.
+
+zamantakip.duckdns.org {
+	reverse_proxy 127.0.0.1:3001
+
+	encode gzip
+
+	# Uygulama tüm yanıtları kendisi ürettiği için ek başlıkları burada veriyoruz.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/zaman-takip.log
+	}
+}

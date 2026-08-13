@@ -68,6 +68,15 @@ Depoda [`vercel.json`](vercel.json) var; Vercel depoyu bağladığınızda ayarl
 > `JWT_SECRET` ayarlanmazsa uygulama çalışır ama her yeni fonksiyon örneğinde anahtar
 > değişir ve kullanıcılar sürekli çıkış yapmış olur. Mutlaka tanımlayın.
 
+### Alternatif: kendi sunucunuz (Oracle Cloud Always Free)
+
+Kalıcı diski olan bir sunucuda çalıştırırsanız Postgres'i doğrudan makineye kurabilir,
+dışarıdan bir veritabanı hizmetine bağımlı olmazsınız. Oracle Cloud'un Always Free
+katmanı bunun için süresiz ücretsiz bir sunucu veriyor.
+
+Adım adım kurulum: [deploy/oracle-cloud.md](deploy/oracle-cloud.md) — systemd birim
+dosyası ve otomatik HTTPS için Caddy yapılandırması `deploy/` klasöründe hazır.
+
 ### Alternatif: Render
 
 Depoda bir [`render.yaml`](render.yaml) blueprint'i de var. Render'da *New → Blueprint* ile
