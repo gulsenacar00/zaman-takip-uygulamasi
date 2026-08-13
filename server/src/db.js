@@ -89,12 +89,20 @@ async function createDriver() {
   }
 
   const isLocal = /@(localhost|127\.0\.0\.1)/.test(url)
+  // Serverless'ta her örnek kısa ömürlüdür ve aynı anda çok sayıda örnek
+  // ayağa kalkabilir; örnek başına tek bağlantı tutup boştakini hızlıca
+  // bırakmak veritabanının bağlantı limitini korur.
+  const serverless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+
   const pool = new pg.Pool({
     connectionString: url,
     // Yönetilen Postgres servisleri TLS ister. Sertifika doğrulaması varsayılan
     // olarak açık; sağlayıcınız kendi imzaladığı bir sertifika kullanıyorsa
     // DATABASE_SSL_INSECURE=1 ile kapatabilirsiniz.
     ssl: isLocal ? false : { rejectUnauthorized: process.env.DATABASE_SSL_INSECURE !== '1' },
+    max: serverless ? 1 : 10,
+    idleTimeoutMillis: serverless ? 5_000 : 30_000,
+    connectionTimeoutMillis: 10_000,
   })
 
   pool.on('error', (err) => console.error('Postgres havuz hatası:', err.message))
@@ -105,9 +113,26 @@ async function createDriver() {
   }
 }
 
-/** Sürücüyü kurar ve şemayı oluşturur. Sunucu dinlemeye başlamadan önce çağrılır. */
-export async function initDb() {
+async function bootstrap() {
   const driver = await createDriver()
   runQuery = driver.query
   await driver.exec(SCHEMA_SQL)
+}
+
+let initPromise = null
+
+/**
+ * Sürücüyü kurar ve şemayı oluşturur.
+ *
+ * Birden çok kez çağrılabilir: uzun ömürlü sunucuda açılışta bir kez, serverless
+ * ortamda ise her istekte çağrılır ve ilk çağrının sözü paylaşılır.
+ */
+export function initDb() {
+  if (!initPromise) {
+    initPromise = bootstrap().catch((err) => {
+      initPromise = null // sonraki istek yeniden denesin
+      throw err
+    })
+  }
+  return initPromise
 }

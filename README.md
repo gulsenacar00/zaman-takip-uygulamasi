@@ -46,22 +46,34 @@ npm run dev
 `JWT_SECRET` tanımlanmazsa yerelde `server/data/.jwt-secret` dosyasında otomatik üretilir.
 **Yayında mutlaka ayarlayın**: anahtar değişirse tüm kullanıcıların oturumu kapanır.
 
-## Yayına alma (Render + Postgres)
+## Yayına alma (Vercel + Postgres)
 
-Depoda bir [`render.yaml`](render.yaml) blueprint'i var; Render depoyu bağladığınızda
-servisi kendisi kurar.
+Depoda [`vercel.json`](vercel.json) var; Vercel depoyu bağladığınızda ayarları oradan okur.
+İstemci statik olarak, API ise `api/index.js` üzerinden serverless fonksiyon olarak yayınlanır.
 
 1. **Veritabanı**: [neon.tech](https://neon.tech) veya [supabase.com](https://supabase.com)
-   üzerinde ücretsiz bir Postgres oluşturun ve bağlantı adresini (connection string) kopyalayın.
-2. **Servis**: [render.com](https://render.com) → *New* → *Blueprint* → bu depoyu seçin.
-3. **Ortam değişkeni**: Render `DATABASE_URL` soracak, 1. adımdaki adresi yapıştırın.
-   `JWT_SECRET` otomatik üretilir. SMTP kullanacaksanız `SMTP_*` değişkenlerini de ekleyin.
-4. Deploy bitince uygulama `https://<servis-adi>.onrender.com` adresinde yayında olur.
+   üzerinde ücretsiz bir Postgres oluşturun. Bağlantı adresinin **havuzlanmış (pooled)**
+   olanını kopyalayın — Neon'da host adında `-pooler` geçen adres. Serverless'ta her istek
+   ayrı bir örnekte çalışabildiği için havuzlanmış adres bağlantı tükenmesini önler.
+2. **Proje**: [vercel.com](https://vercel.com) → *Add New* → *Project* → bu depoyu içe aktarın.
+3. **Ortam değişkenleri** (*Settings → Environment Variables*):
+   - `DATABASE_URL` — 1. adımdaki adres
+   - `JWT_SECRET` — rastgele uzun bir dize. Üretmek için:
+     `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+   - İsteğe bağlı: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+4. *Deploy*. Uygulama `https://<proje-adi>.vercel.app` adresinde yayına girer.
 
-Şema ilk açılışta otomatik oluşur; elle migration çalıştırmak gerekmez.
+Şema ilk istekte otomatik oluşur; elle migration çalıştırmak gerekmez.
 
-> Render'ın ücretsiz servisi bir süre istek almazsa uykuya dalar; ilk istek birkaç saniye
-> gecikebilir. Veriler Postgres'te durduğu için uykuya dalmak veri kaybettirmez.
+> `JWT_SECRET` ayarlanmazsa uygulama çalışır ama her yeni fonksiyon örneğinde anahtar
+> değişir ve kullanıcılar sürekli çıkış yapmış olur. Mutlaka tanımlayın.
+
+### Alternatif: Render
+
+Depoda bir [`render.yaml`](render.yaml) blueprint'i de var. Render'da *New → Blueprint* ile
+depoyu seçmeniz ve `DATABASE_URL` girmeniz yeterli; `JWT_SECRET` otomatik üretilir. Render
+uzun ömürlü bir sunucu çalıştırdığı için havuzlanmamış bağlantı adresi de kullanılabilir,
+ancak ücretsiz servis bir süre istek almazsa uykuya dalar ve ilk istek gecikir.
 
 ### Eski SQLite verisini taşıma
 
@@ -118,10 +130,17 @@ client/
     pages/                  Login, SessionsPage, NotesPage
 server/
   src/
-    db.js                   şema
+    app.js                  Express uygulaması (dinlemez, dışa aktarılır)
+    index.js                uzun ömürlü sunucu girişi (yerel, Render)
+    db.js                   bağlantı havuzu + şema
     auth.js                 JWT üretimi/doğrulaması
+    mailer.js               şifre sıfırlama e-postası
+    rateLimit.js            IP başına istek sınırı
     routes/                 auth, sessions, notes
-  data/                     SQLite dosyası (git'e girmez)
+  scripts/
+    import-sqlite.mjs       eski SQLite verisini Postgres'e aktarır
+api/
+  index.js                  Vercel serverless giriş noktası
 ```
 
 ## Sayaç nasıl çalışıyor?
@@ -215,7 +234,9 @@ sunucuda hesaplanır; istemciden gelen süreye güvenilmez.
 ## Bilinen sınırlar
 
 - Kimlik uçlarında IP başına istek sınırı bellekte tutulur; sunucu yeniden başlarsa
-  veya birden fazla örneğe çıkılırsa sayaçlar sıfırlanır.
+  veya birden fazla örneğe çıkılırsa sayaçlar sıfırlanır. Vercel gibi serverless
+  ortamlarda her fonksiyon örneği kendi sayacını tuttuğu için sınır daha gevşek
+  davranır; sıkı bir kota gerekiyorsa Redis tabanlı bir sayaç gerekir.
 - Kayıt herkese açıktır: linki bilen herkes hesap oluşturabilir.
 - Token'lar 30 gün geçerlidir. Tek tek iptal edilemezler; yalnızca şifre değişimi tüm
   tokenları topluca geçersiz kılar.

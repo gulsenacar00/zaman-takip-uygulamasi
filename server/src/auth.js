@@ -17,17 +17,32 @@ const secretFile = join(here, '..', 'data', '.jwt-secret')
 function loadSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET
 
-  if (process.env.NODE_ENV === 'production') {
-    console.warn(
-      'UYARI: JWT_SECRET tanımlı değil. Sunucu yeniden başladığında anahtar\n' +
-        '       değişebilir ve tüm kullanıcıların oturumu kapanır. Sunucu panelinden\n' +
-        '       JWT_SECRET ortam değişkenini ayarlayın.'
-    )
+  // Yerelde kurulum kolay olsun diye anahtarı bir dosyada saklamayı deneriz.
+  // Serverless ortamlarda dosya sistemi salt okunur olduğu için bu başarısız
+  // olabilir; o durumda geçici bir anahtar üretiyoruz.
+  try {
+    mkdirSync(dirname(secretFile), { recursive: true })
+    if (!existsSync(secretFile)) writeFileSync(secretFile, randomBytes(48).toString('hex'), 'utf8')
+    const fromFile = readFileSync(secretFile, 'utf8').trim()
+    if (fromFile) {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(
+          'UYARI: JWT_SECRET tanımlı değil, anahtar dosyadan okundu. Yayında bu\n' +
+            '       dosya kalıcı olmayabilir; panelden JWT_SECRET ayarlayın.'
+        )
+      }
+      return fromFile
+    }
+  } catch {
+    // dosya sistemi yazılamıyor — aşağıdaki geçici anahtara düşülür
   }
 
-  mkdirSync(dirname(secretFile), { recursive: true })
-  if (!existsSync(secretFile)) writeFileSync(secretFile, randomBytes(48).toString('hex'), 'utf8')
-  return readFileSync(secretFile, 'utf8').trim()
+  console.warn(
+    'UYARI: JWT_SECRET tanımlı değil ve anahtar diske yazılamadı. Geçici bir\n' +
+      '       anahtar üretildi: sunucu her yeniden başladığında tüm kullanıcıların\n' +
+      '       oturumu kapanacak. Panelden JWT_SECRET ortam değişkenini ayarlayın.'
+  )
+  return randomBytes(48).toString('hex')
 }
 
 const SECRET = loadSecret()
