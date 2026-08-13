@@ -1,27 +1,16 @@
-import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import pg from 'pg'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const dataDir = join(here, '..', 'data')
-mkdirSync(dataDir, { recursive: true })
-
-export const db = new DatabaseSync(join(dataDir, 'app.db'))
-
-db.exec('PRAGMA journal_mode = WAL')
-db.exec('PRAGMA foreign_keys = ON')
-
-db.exec(`
+const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    email         TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    id                  SERIAL PRIMARY KEY,
+    email               TEXT NOT NULL UNIQUE,
+    password_hash       TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    password_changed_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS work_sessions (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    id               SERIAL PRIMARY KEY,
     user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     start_time       TEXT NOT NULL,
     end_time         TEXT NOT NULL,
@@ -30,16 +19,16 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS notes (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         SERIAL PRIMARY KEY,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     content    TEXT NOT NULL,
-    is_done    INTEGER NOT NULL DEFAULT 0,
+    is_done    BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS password_resets (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         SERIAL PRIMARY KEY,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     code_hash  TEXT NOT NULL,
     expires_at TEXT NOT NULL,
@@ -51,12 +40,74 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON work_sessions(user_id, start_time DESC);
   CREATE INDEX IF NOT EXISTS idx_notes_user    ON notes(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_resets_user   ON password_resets(user_id, created_at DESC);
-`)
+`
 
-// Şifre değiştiğinde eskiden dağıtılmış tokenları geçersiz kılabilmek için
-// kullanıcının son şifre değişim anını tutuyoruz. Mevcut veritabanları için ekle.
-const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
-if (!userColumns.includes('password_changed_at')) {
-  db.exec('ALTER TABLE users ADD COLUMN password_changed_at TEXT')
-  db.exec('UPDATE users SET password_changed_at = created_at WHERE password_changed_at IS NULL')
+// Zaman damgaları ISO 8601 (UTC) metin olarak saklanır. Bu biçimde sözlük
+// sıralaması kronolojik sıralamayla aynı olduğu için ORDER BY doğru çalışır.
+
+let runQuery = null
+
+/**
+ * Tek sorgu çalıştırır. pg ve PGlite'ın imzaları uyumlu olduğu için
+ * çağıran taraf hangi sürücünün kullanıldığını bilmek zorunda değil.
+ * @returns {Promise<{rows: any[]}>}
+ */
+export function query(text, params) {
+  if (!runQuery) throw new Error('Veritabanı henüz başlatılmadı (initDb çağrılmalı).')
+  return runQuery(text, params)
+}
+
+/** Tek satır bekleyen sorgular için kısayol. */
+export async function queryOne(text, params) {
+  const { rows } = await query(text, params)
+  return rows[0] ?? null
+}
+
+async function createDriver() {
+  const url = process.env.DATABASE_URL
+
+  // Geliştirme kolaylığı: DATABASE_URL=pglite ile kurulum gerektirmeyen,
+  // bellek içi bir Postgres üzerinde çalışır (veriler kalıcı değildir).
+  if (url === 'pglite') {
+    const { PGlite } = await import('@electric-sql/pglite')
+    const db = new PGlite()
+    console.log('Veritabanı: gömülü PGlite (bellek içi, kalıcı değil)')
+    return {
+      query: (text, params) => db.query(text, params),
+      exec: (text) => db.exec(text),
+    }
+  }
+
+  if (!url) {
+    console.error(
+      'DATABASE_URL tanımlı değil.\n' +
+        '  Yayında  : sunucu panelinde Postgres bağlantı adresini ayarlayın.\n' +
+        '  Yerelde  : server/.env içine DATABASE_URL yazın veya kurulumsuz denemek\n' +
+        '             için DATABASE_URL=pglite kullanın.'
+    )
+    process.exit(1)
+  }
+
+  const isLocal = /@(localhost|127\.0\.0\.1)/.test(url)
+  const pool = new pg.Pool({
+    connectionString: url,
+    // Yönetilen Postgres servisleri TLS ister. Sertifika doğrulaması varsayılan
+    // olarak açık; sağlayıcınız kendi imzaladığı bir sertifika kullanıyorsa
+    // DATABASE_SSL_INSECURE=1 ile kapatabilirsiniz.
+    ssl: isLocal ? false : { rejectUnauthorized: process.env.DATABASE_SSL_INSECURE !== '1' },
+  })
+
+  pool.on('error', (err) => console.error('Postgres havuz hatası:', err.message))
+
+  return {
+    query: (text, params) => pool.query(text, params),
+    exec: (text) => pool.query(text),
+  }
+}
+
+/** Sürücüyü kurar ve şemayı oluşturur. Sunucu dinlemeye başlamadan önce çağrılır. */
+export async function initDb() {
+  const driver = await createDriver()
+  runQuery = driver.query
+  await driver.exec(SCHEMA_SQL)
 }

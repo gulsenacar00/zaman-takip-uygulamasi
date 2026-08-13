@@ -1,18 +1,31 @@
 import jwt from 'jsonwebtoken'
 import { randomBytes } from 'node:crypto'
-import { db } from './db.js'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { queryOne } from './db.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const secretFile = join(here, '..', 'data', '.jwt-secret')
 
-// Sunucu ilk açılışta kendi imza anahtarını üretir; böylece kurulum için
-// elle .env doldurmak gerekmez. Anahtar dosyada kalıcı olduğu için
-// yeniden başlatmalarda tokenlar geçerliliğini korur.
+/**
+ * İmza anahtarı öncelikle JWT_SECRET ortam değişkeninden okunur.
+ * Yerelde kurulum kolay olsun diye, yoksa bir dosyada üretilip saklanır —
+ * ama yayında dosya sistemi kalıcı olmayabileceği için bu durum uyarılır:
+ * anahtar değişirse herkesin oturumu kapanır.
+ */
 function loadSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(
+      'UYARI: JWT_SECRET tanımlı değil. Sunucu yeniden başladığında anahtar\n' +
+        '       değişebilir ve tüm kullanıcıların oturumu kapanır. Sunucu panelinden\n' +
+        '       JWT_SECRET ortam değişkenini ayarlayın.'
+    )
+  }
+
+  mkdirSync(dirname(secretFile), { recursive: true })
   if (!existsSync(secretFile)) writeFileSync(secretFile, randomBytes(48).toString('hex'), 'utf8')
   return readFileSync(secretFile, 'utf8').trim()
 }
@@ -45,7 +58,7 @@ export function verifyResetToken(token) {
 }
 
 /** Authorization: Bearer <token> başlığını doğrular, req.user'ı doldurur. */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : null
   if (!token) return res.status(401).json({ error: 'Giriş yapmanız gerekiyor.' })
@@ -60,15 +73,24 @@ export function requireAuth(req, res, next) {
   // Şifre sıfırlama tokenı normal isteklerde kullanılamaz.
   if (payload.purpose) return res.status(401).json({ error: 'Geçersiz oturum.' })
 
-  const user = db.prepare('SELECT id, email, password_changed_at FROM users WHERE id = ?').get(payload.sub)
-  if (!user) return res.status(401).json({ error: 'Geçersiz oturum.' })
+  try {
+    const user = await queryOne(
+      'SELECT id, email, password_changed_at FROM users WHERE id = $1',
+      [payload.sub]
+    )
+    if (!user) return res.status(401).json({ error: 'Geçersiz oturum.' })
 
-  // Şifre değiştiyse o andan önce üretilmiş tokenlar geçersizdir.
-  const changedAt = user.password_changed_at ? Math.floor(Date.parse(user.password_changed_at) / 1000) : 0
-  if (changedAt > payload.iat) {
-    return res.status(401).json({ error: 'Şifreniz değişti, tekrar giriş yapın.' })
+    // Şifre değiştiyse o andan önce üretilmiş tokenlar geçersizdir.
+    const changedAt = user.password_changed_at
+      ? Math.floor(Date.parse(user.password_changed_at) / 1000)
+      : 0
+    if (changedAt > payload.iat) {
+      return res.status(401).json({ error: 'Şifreniz değişti, tekrar giriş yapın.' })
+    }
+
+    req.user = { id: user.id, email: user.email }
+    next()
+  } catch (err) {
+    next(err)
   }
-
-  req.user = { id: user.id, email: user.email }
-  next()
 }

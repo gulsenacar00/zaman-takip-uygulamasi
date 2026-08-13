@@ -1,0 +1,20 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Depoyu Render'a bağladığınızda bu dosya okunur ve servis otomatik kurulur.
+services:
+  - type: web
+    name: zaman-takip
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render rastgele üretir ve kalıcı tutar; değişirse tüm oturumlar kapanır.
+      - key: JWT_SECRET
+        generateValue: true
+      # Postgres bağlantı adresi — panelden elle girilir (git'e yazılmaz).
+      - key: DATABASE_URL
+        sync: false

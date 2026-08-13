@@ -11,7 +11,7 @@ basit bir web uygulaması.
 | Frontend | React 19 + React Router 7 |
 | Stil | Tailwind CSS 4 |
 | Backend | Express 4 |
-| Veritabanı | SQLite (Node 24'ün yerleşik `node:sqlite` modülü) |
+| Veritabanı | PostgreSQL (`pg`) |
 | Kimlik doğrulama | bcrypt ile hash + JWT |
 | Yerel kalıcılık | localStorage (yalnızca aktif sayaç durumu) |
 
@@ -26,6 +26,16 @@ npm run install:all
 
 ## Geliştirme
 
+Veritabanı adresini tanımlayın:
+
+```bash
+copy server\.env.example server\.env
+```
+
+`server/.env` içindeki `DATABASE_URL` alanına Postgres bağlantı adresinizi yazın.
+Hiçbir kurulum yapmadan denemek isterseniz `DATABASE_URL=pglite` yazabilirsiniz —
+uygulama gömülü, bellek içi bir Postgres üzerinde çalışır (veriler kalıcı olmaz).
+
 ```bash
 npm run dev
 ```
@@ -33,9 +43,37 @@ npm run dev
 - İstemci: http://localhost:5173 (API istekleri 3001'e proxy'lenir)
 - API: http://localhost:3001
 
-İlk çalıştırmada `server/data/app.db` ve JWT imza anahtarı (`server/data/.jwt-secret`)
-otomatik oluşur — elle `.env` doldurmanız gerekmez. Kendi anahtarınızı vermek isterseniz
-`JWT_SECRET` ortam değişkenini ayarlayın.
+`JWT_SECRET` tanımlanmazsa yerelde `server/data/.jwt-secret` dosyasında otomatik üretilir.
+**Yayında mutlaka ayarlayın**: anahtar değişirse tüm kullanıcıların oturumu kapanır.
+
+## Yayına alma (Render + Postgres)
+
+Depoda bir [`render.yaml`](render.yaml) blueprint'i var; Render depoyu bağladığınızda
+servisi kendisi kurar.
+
+1. **Veritabanı**: [neon.tech](https://neon.tech) veya [supabase.com](https://supabase.com)
+   üzerinde ücretsiz bir Postgres oluşturun ve bağlantı adresini (connection string) kopyalayın.
+2. **Servis**: [render.com](https://render.com) → *New* → *Blueprint* → bu depoyu seçin.
+3. **Ortam değişkeni**: Render `DATABASE_URL` soracak, 1. adımdaki adresi yapıştırın.
+   `JWT_SECRET` otomatik üretilir. SMTP kullanacaksanız `SMTP_*` değişkenlerini de ekleyin.
+4. Deploy bitince uygulama `https://<servis-adi>.onrender.com` adresinde yayında olur.
+
+Şema ilk açılışta otomatik oluşur; elle migration çalıştırmak gerekmez.
+
+> Render'ın ücretsiz servisi bir süre istek almazsa uykuya dalar; ilk istek birkaç saniye
+> gecikebilir. Veriler Postgres'te durduğu için uykuya dalmak veri kaybettirmez.
+
+### Eski SQLite verisini taşıma
+
+Proje önce SQLite kullanıyordu. Elinizdeki `server/data/app.db` dosyasındaki hesapları,
+kayıtları ve notları Postgres'e aktarmak için:
+
+```bash
+cd server; npm run import:sqlite
+```
+
+Script `DATABASE_URL`'in gösterdiği veritabanına yazar, aynı id'ye sahip satırları atlar,
+bu yüzden birden fazla kez çalıştırılabilir.
 
 ## E-posta (şifre sıfırlama) ayarı
 
@@ -176,6 +214,9 @@ sunucuda hesaplanır; istemciden gelen süreye güvenilmez.
 
 ## Bilinen sınırlar
 
+- Kimlik uçlarında IP başına istek sınırı bellekte tutulur; sunucu yeniden başlarsa
+  veya birden fazla örneğe çıkılırsa sayaçlar sıfırlanır.
+- Kayıt herkese açıktır: linki bilen herkes hesap oluşturabilir.
 - Token'lar 30 gün geçerlidir. Tek tek iptal edilemezler; yalnızca şifre değişimi tüm
   tokenları topluca geçersiz kılar.
 - SMTP tanımlıysa ve gönderim başarısız olursa yanıt 502 döner. Bu, ilgili hesabın var
