@@ -34,13 +34,9 @@ export function SessionsProvider({ children }) {
 
   const sortDesc = (list) => [...list].sort((a, b) => b.start_time.localeCompare(a.start_time))
 
-  const createSession = useCallback(async (startIso, endIso) => {
-    const data = await api('/sessions', {
-      method: 'POST',
-      body: { start_time: startIso, end_time: endIso },
-    })
-    setSessions((prev) => sortDesc([...prev, data.session]))
-    return data.session
+  /** Sunucudan dönen hazır bir kaydı listeye yerleştirir (sayaç bitirildiğinde). */
+  const addSession = useCallback((session) => {
+    setSessions((prev) => sortDesc([...prev.filter((s) => s.id !== session.id), session]))
   }, [])
 
   const updateSession = useCallback(async (id, patch) => {
@@ -55,8 +51,16 @@ export function SessionsProvider({ children }) {
   }, [])
 
   const value = useMemo(
-    () => ({ sessions, loading, error, reload, createSession, updateSession, deleteSession }),
-    [sessions, loading, error, reload, createSession, updateSession, deleteSession]
+    () => ({
+      sessions,
+      loading,
+      error,
+      reload,
+      addSession,
+      updateSession,
+      deleteSession,
+    }),
+    [sessions, loading, error, reload, addSession, updateSession, deleteSession]
   )
 
   return <SessionsContext.Provider value={value}>{children}</SessionsContext.Provider>
@@ -64,6 +68,6 @@ export function SessionsProvider({ children }) {
 
 export function useSessions() {
   const ctx = useContext(SessionsContext)
-  if (!ctx) throw new Error('useSessions yalnızca SessionsProvider içinde kullanılabilir.')
+  if (!ctx) throw new Error('useSessions can only be used inside SessionsProvider.')
   return ctx
 }

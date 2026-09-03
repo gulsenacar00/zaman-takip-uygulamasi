@@ -31,8 +31,8 @@ const strictLimit = rateLimit({ windowMs: 60 * 60_000, max: 30 })
 function readCredentials(body) {
   const email = String(body?.email ?? '').trim().toLowerCase()
   const password = String(body?.password ?? '')
-  if (!EMAIL_RE.test(email)) return { error: 'Geçerli bir e-posta adresi girin.' }
-  if (password.length < 6) return { error: 'Şifre en az 6 karakter olmalı.' }
+  if (!EMAIL_RE.test(email)) return { error: 'Enter a valid email address.' }
+  if (password.length < 6) return { error: 'Password must be at least 6 characters.' }
   return { email, password }
 }
 
@@ -44,7 +44,7 @@ authRouter.post(
     if (error) return res.status(400).json({ error })
 
     const exists = await queryOne('SELECT id FROM users WHERE email = $1', [email])
-    if (exists) return res.status(409).json({ error: 'Bu e-posta ile zaten bir hesap var.' })
+    if (exists) return res.status(409).json({ error: 'An account with this email already exists.' })
 
     const now = new Date().toISOString()
     const hash = bcrypt.hashSync(password, 10)
@@ -69,7 +69,7 @@ authRouter.post(
     const row = await queryOne('SELECT id, email, password_hash FROM users WHERE email = $1', [email])
     // Kullanıcı yok / şifre yanlış ayrımını dışarı sızdırmıyoruz.
     if (!row || !bcrypt.compareSync(password, row.password_hash)) {
-      return res.status(401).json({ error: 'E-posta veya şifre hatalı.' })
+      return res.status(401).json({ error: 'Email or password is incorrect.' })
     }
 
     const user = { id: row.id, email: row.email }
@@ -93,7 +93,7 @@ authRouter.post(
   strictLimit,
   wrap(async (req, res) => {
     const email = String(req.body?.email ?? '').trim().toLowerCase()
-    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Geçerli bir e-posta adresi girin.' })
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' })
 
     const user = await queryOne('SELECT id, email FROM users WHERE email = $1', [email])
 
@@ -112,7 +112,7 @@ authRouter.post(
       const waitSeconds = Math.ceil(
         (RESEND_COOLDOWN_SECONDS * 1000 - (Date.now() - Date.parse(recent.created_at))) / 1000
       )
-      return res.status(429).json({ error: `Yeni kod istemek için ${waitSeconds} saniye bekleyin.` })
+      return res.status(429).json({ error: `Wait ${waitSeconds} seconds before requesting a new code.` })
     }
 
     // Önceki kullanılmamış kodlar geçersiz olsun; aynı anda tek kod geçerli.
@@ -137,8 +137,8 @@ authRouter.post(
     } catch (err) {
       // Gönderim başarısızsa kodu da geçersiz kılalım, kullanılamayacak bir kod kalmasın.
       await query('DELETE FROM password_resets WHERE id = $1', [created.id])
-      console.error('E-posta gönderilemedi:', err.message)
-      res.status(502).json({ error: 'Doğrulama e-postası gönderilemedi. SMTP ayarlarını kontrol edin.' })
+      console.error('Could not send email:', err.message)
+      res.status(502).json({ error: 'Could not send the verification email. Check the SMTP settings.' })
     }
   })
 )
@@ -149,7 +149,7 @@ authRouter.post(
   wrap(async (req, res) => {
     const email = String(req.body?.email ?? '').trim().toLowerCase()
     const code = String(req.body?.code ?? '').trim()
-    const invalid = { error: 'Kod hatalı veya süresi dolmuş.' }
+    const invalid = { error: 'The code is incorrect or has expired.' }
 
     const user = await queryOne('SELECT id FROM users WHERE email = $1', [email])
     if (!user) return res.status(400).json(invalid)
@@ -165,14 +165,17 @@ authRouter.post(
 
     if (reset.attempts >= MAX_CODE_ATTEMPTS) {
       await query('DELETE FROM password_resets WHERE id = $1', [reset.id])
-      return res.status(429).json({ error: 'Çok fazla hatalı deneme. Yeni bir kod isteyin.' })
+      return res.status(429).json({ error: 'Too many incorrect attempts. Request a new code.' })
     }
 
     if (!bcrypt.compareSync(code, reset.code_hash)) {
       await query('UPDATE password_resets SET attempts = attempts + 1 WHERE id = $1', [reset.id])
       const left = MAX_CODE_ATTEMPTS - (reset.attempts + 1)
       return res.status(400).json({
-        error: left > 0 ? `Kod hatalı. ${left} deneme hakkınız kaldı.` : 'Kod hatalı. Yeni bir kod isteyin.',
+        error:
+          left > 0
+            ? `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.`
+            : 'Incorrect code. Request a new code.',
       })
     }
 
@@ -185,11 +188,11 @@ authRouter.post(
   strictLimit,
   wrap(async (req, res) => {
     const password = String(req.body?.password ?? '')
-    if (password.length < 6) return res.status(400).json({ error: 'Şifre en az 6 karakter olmalı.' })
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
 
     const payload = verifyResetToken(String(req.body?.resetToken ?? ''))
     if (!payload) {
-      return res.status(400).json({ error: 'Doğrulama süresi doldu. Süreci baştan başlatın.' })
+      return res.status(400).json({ error: 'Verification expired. Start the process again.' })
     }
 
     // Token tek kullanımlık: ilgili kayıt hâlâ kullanılmamış olmalı.
@@ -197,7 +200,7 @@ authRouter.post(
       'SELECT id FROM password_resets WHERE id = $1 AND user_id = $2 AND used_at IS NULL',
       [payload.rid, payload.sub]
     )
-    if (!reset) return res.status(400).json({ error: 'Bu doğrulama kodu zaten kullanılmış.' })
+    if (!reset) return res.status(400).json({ error: 'This verification code has already been used.' })
 
     const now = new Date().toISOString()
     await query('UPDATE users SET password_hash = $1, password_changed_at = $2 WHERE id = $3', [

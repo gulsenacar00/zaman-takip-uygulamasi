@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 
 const inputClass =
-  'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900'
+  'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900 ' +
+  'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-400'
 const primaryClass =
-  'w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60'
+  'w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60 ' +
+  'dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300'
+const labelClass = 'text-sm font-medium text-slate-700 dark:text-slate-300'
+const hintClass = 'mt-1 block text-xs text-slate-500 dark:text-slate-400'
+const quietButtonClass =
+  'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
 
 /**
  * Şifremi unuttum akışı:
@@ -62,7 +68,7 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
 
   async function submitPassword(event) {
     event.preventDefault()
-    if (password !== passwordAgain) return setError('Şifreler birbiriyle uyuşmuyor.')
+    if (password !== passwordAgain) return setError('The passwords do not match.')
 
     setBusy(true)
     setError('')
@@ -77,18 +83,20 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
   }
 
   const errorBox = error && (
-    <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+    <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+      {error}
+    </p>
   )
 
   if (step === 'done') {
     return (
-      <Card title="Şifreniz güncellendi" subtitle="Yeni şifrenizle tekrar giriş yapabilirsiniz.">
+      <Card title="Your password has been updated" subtitle="You can sign in again with your new password.">
         <div className="mt-6 space-y-4">
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            Şifreniz başarıyla değiştirildi. Güvenlik için diğer cihazlardaki oturumlarınız kapatıldı.
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            Your password was changed. For security, your sessions on other devices were signed out.
           </p>
           <button type="button" onClick={() => onDone(email)} className={primaryClass}>
-            Giriş yap
+            Sign in
           </button>
         </div>
       </Card>
@@ -97,10 +105,10 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
 
   if (step === 'password') {
     return (
-      <Card title="Yeni şifre belirleyin" subtitle={`${email} hesabı için yeni bir şifre girin.`}>
+      <Card title="Set a new password" subtitle={`Enter a new password for ${email}.`}>
         <form onSubmit={submitPassword} className="mt-6 space-y-4">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Yeni şifre</span>
+            <span className={labelClass}>New password</span>
             <input
               type="password"
               required
@@ -111,11 +119,11 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
               autoFocus
               className={inputClass}
             />
-            <span className="mt-1 block text-xs text-slate-500">En az 6 karakter.</span>
+            <span className={hintClass}>At least 6 characters.</span>
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Yeni şifre (tekrar)</span>
+            <span className={labelClass}>New password (again)</span>
             <input
               type="password"
               required
@@ -130,7 +138,7 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
           {errorBox}
 
           <button type="submit" disabled={busy} className={primaryClass}>
-            {busy ? 'Kaydediliyor…' : 'Şifreyi güncelle'}
+            {busy ? 'Saving…' : 'Update password'}
           </button>
         </form>
       </Card>
@@ -139,17 +147,17 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
 
   if (step === 'code') {
     return (
-      <Card title="Doğrulama kodu" subtitle={`${email} adresine 6 haneli bir kod gönderildi.`}>
+      <Card title="Verification code" subtitle={`A 6-digit code was sent to ${email}.`}>
         {!mailSent && (
-          <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            SMTP ayarlanmadığı için kod e-posta yerine <strong>sunucu konsoluna</strong> yazıldı.
-            <code className="ml-1">npm run dev</code> çıktısına bakın.
+          <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            SMTP is not configured, so the code was written to the <strong>server console</strong>
+            instead of being emailed. Check the <code className="ml-1">npm run dev</code> output.
           </p>
         )}
 
         <form onSubmit={verifyCode} className="mt-6 space-y-4">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Kod</span>
+            <span className={labelClass}>Code</span>
             <input
               type="text"
               inputMode="numeric"
@@ -162,13 +170,13 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
               className={`${inputClass} text-center font-mono text-2xl tracking-[0.4em]`}
               placeholder="000000"
             />
-            <span className="mt-1 block text-xs text-slate-500">Kod 15 dakika geçerlidir.</span>
+            <span className={hintClass}>The code is valid for 15 minutes.</span>
           </label>
 
           {errorBox}
 
           <button type="submit" disabled={busy || code.length !== 6} className={primaryClass}>
-            {busy ? 'Kontrol ediliyor…' : 'Kodu doğrula'}
+            {busy ? 'Checking…' : 'Verify code'}
           </button>
         </form>
 
@@ -177,12 +185,12 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
             type="button"
             onClick={requestCode}
             disabled={busy || cooldown > 0}
-            className="text-slate-500 hover:text-slate-800 disabled:opacity-50"
+            className={`${quietButtonClass} disabled:opacity-50`}
           >
-            {cooldown > 0 ? `Tekrar gönder (${cooldown})` : 'Kodu tekrar gönder'}
+            {cooldown > 0 ? `Resend (${cooldown})` : 'Resend code'}
           </button>
-          <button type="button" onClick={onCancel} className="text-slate-500 hover:text-slate-800">
-            Vazgeç
+          <button type="button" onClick={onCancel} className={quietButtonClass}>
+            Cancel
           </button>
         </div>
       </Card>
@@ -191,12 +199,12 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
 
   return (
     <Card
-      title="Şifremi unuttum"
-      subtitle="Hesabınızın e-posta adresini girin, size 6 haneli bir doğrulama kodu gönderelim."
+      title="Forgot my password"
+      subtitle="Enter your account's email address and we will send you a 6-digit verification code."
     >
       <form onSubmit={requestCode} className="mt-6 space-y-4">
         <label className="block">
-          <span className="text-sm font-medium text-slate-700">E-posta</span>
+          <span className={labelClass}>Email</span>
           <input
             type="email"
             required
@@ -211,16 +219,16 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
         {errorBox}
 
         <button type="submit" disabled={busy} className={primaryClass}>
-          {busy ? 'Gönderiliyor…' : 'Kod gönder'}
+          {busy ? 'Sending…' : 'Send code'}
         </button>
       </form>
 
       <button
         type="button"
         onClick={onCancel}
-        className="mt-4 w-full text-center text-sm text-slate-500 hover:text-slate-800"
+        className={`mt-4 w-full text-center text-sm ${quietButtonClass}`}
       >
-        Giriş ekranına dön
+        Back to sign in
       </button>
     </Card>
   )
@@ -228,9 +236,9 @@ export default function ForgotPassword({ initialEmail = '', onCancel, onDone }) 
 
 function Card({ title, subtitle, children }) {
   return (
-    <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-      <h1 className="text-xl font-bold tracking-tight">{title}</h1>
-      <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+    <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{title}</h1>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
       {children}
     </div>
   )

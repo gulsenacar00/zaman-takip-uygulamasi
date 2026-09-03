@@ -11,8 +11,8 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
 
 function readContent(value) {
   const content = String(value ?? '').trim()
-  if (!content) return { error: 'Not içeriği boş olamaz.' }
-  if (content.length > MAX_LENGTH) return { error: `Not en fazla ${MAX_LENGTH} karakter olabilir.` }
+  if (!content) return { error: 'Note content cannot be empty.' }
+  if (content.length > MAX_LENGTH) return { error: `A note can be at most ${MAX_LENGTH} characters.` }
   return { content }
 }
 
@@ -53,7 +53,7 @@ notesRouter.patch(
   wrap(async (req, res) => {
     const id = Number(req.params.id)
     const current = await queryOne('SELECT * FROM notes WHERE id = $1 AND user_id = $2', [id, req.user.id])
-    if (!current) return res.status(404).json({ error: 'Not bulunamadı.' })
+    if (!current) return res.status(404).json({ error: 'Note not found.' })
 
     let content = current.content
     if (req.body?.content !== undefined) {
@@ -83,7 +83,7 @@ notesRouter.delete(
       Number(req.params.id),
       req.user.id,
     ])
-    if (!rows.length) return res.status(404).json({ error: 'Not bulunamadı.' })
+    if (!rows.length) return res.status(404).json({ error: 'Note not found.' })
     res.status(204).end()
   })
 )

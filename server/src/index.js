@@ -11,15 +11,15 @@ const PORT = Number(process.env.PORT ?? 3001)
 initDb()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`API hazır → http://localhost:${PORT}`)
+      console.log(`API ready → http://localhost:${PORT}`)
       console.log(
         mailConfigured
-          ? 'E-posta: SMTP tanımlı, sıfırlama kodları e-posta ile gönderilecek.'
-          : 'E-posta: SMTP tanımlı değil, sıfırlama kodları bu konsola yazılacak (server/.env.example).'
+          ? 'Email: SMTP configured, reset codes will be sent by email.'
+          : 'Email: SMTP not configured, reset codes will be printed to this console (server/.env.example).'
       )
     })
   })
   .catch((err) => {
-    console.error('Veritabanına bağlanılamadı:', err.message)
+    console.error('Could not connect to the database:', err.message)
     process.exit(1)
   })

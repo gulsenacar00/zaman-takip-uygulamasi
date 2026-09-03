@@ -10,6 +10,7 @@ import { initDb } from './db.js'
 import { authRouter } from './routes/auth.js'
 import { sessionsRouter } from './routes/sessions.js'
 import { notesRouter } from './routes/notes.js'
+import { timerRouter } from './routes/timer.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -32,6 +33,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.use('/api/auth', authRouter)
 app.use('/api/sessions', sessionsRouter)
 app.use('/api/notes', notesRouter)
+app.use('/api/timer', timerRouter)
 
 // Tek sunucu kurulumunda (yerel üretim, Render) derlenmiş istemci aynı porttan
 // servis edilir. Vercel'de statik dosyaları platform sunduğu için bu klasör
@@ -44,5 +46,5 @@ if (existsSync(clientDist)) {
 
 app.use((err, _req, res, _next) => {
   console.error(err)
-  res.status(500).json({ error: 'Sunucu hatası.' })
+  res.status(500).json({ error: 'Server error.' })
 })

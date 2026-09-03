@@ -11,7 +11,7 @@ function clientKey(req) {
   // Render/Heroku gibi vekil arkasında gerçek IP bu başlıkta gelir.
   const forwarded = req.headers['x-forwarded-for']
   const ip = forwarded ? String(forwarded).split(',')[0].trim() : req.socket.remoteAddress
-  return ip || 'bilinmeyen'
+  return ip || 'unknown'
 }
 
 export function rateLimit({ windowMs, max, message }) {
@@ -29,7 +29,7 @@ export function rateLimit({ windowMs, max, message }) {
     if (bucket.count > max) {
       const seconds = Math.ceil((bucket.resetAt - now) / 1000)
       res.setHeader('Retry-After', String(seconds))
-      return res.status(429).json({ error: message ?? `Çok fazla deneme. ${seconds} saniye sonra tekrar deneyin.` })
+      return res.status(429).json({ error: message ?? `Too many attempts. Try again in ${seconds} seconds.` })
     }
 
     next()

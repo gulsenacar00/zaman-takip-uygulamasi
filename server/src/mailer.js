@@ -25,9 +25,9 @@ const from = SMTP_FROM || SMTP_USER
 export async function sendResetCode(email, code, minutesValid) {
   if (!transporter) {
     console.log(
-      `\n=== ŞİFRE SIFIRLAMA ===\n  E-posta : ${email}\n  Kod     : ${code}\n` +
-        `  Geçerlilik: ${minutesValid} dakika\n` +
-        `  (SMTP tanımlı değil; kodu buradan okuyabilirsiniz.)\n=======================\n`
+      `\n=== PASSWORD RESET ===\n  Email : ${email}\n  Code  : ${code}\n` +
+        `  Valid for: ${minutesValid} minutes\n` +
+        `  (SMTP is not configured; you can read the code here.)\n======================\n`
     )
     return false
   }
@@ -35,16 +35,16 @@ export async function sendResetCode(email, code, minutesValid) {
   await transporter.sendMail({
     from,
     to: email,
-    subject: `Zaman Takip şifre sıfırlama kodu: ${code}`,
+    subject: `Time Tracker password reset code: ${code}`,
     text:
-      `Şifrenizi sıfırlamak için doğrulama kodunuz: ${code}\n\n` +
-      `Kod ${minutesValid} dakika geçerlidir.\n` +
-      `Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`,
+      `Your verification code for resetting your password: ${code}\n\n` +
+      `The code is valid for ${minutesValid} minutes.\n` +
+      `If you did not request this, you can ignore this email.`,
     html:
-      `<p>Şifrenizi sıfırlamak için doğrulama kodunuz:</p>` +
+      `<p>Your verification code for resetting your password:</p>` +
       `<p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0">${code}</p>` +
-      `<p>Kod <strong>${minutesValid} dakika</strong> geçerlidir.</p>` +
-      `<p style="color:#64748b;font-size:13px">Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.</p>`,
+      `<p>The code is valid for <strong>${minutesValid} minutes</strong>.</p>` +
+      `<p style="color:#64748b;font-size:13px">If you did not request this, you can ignore this email.</p>`,
   })
 
   return true

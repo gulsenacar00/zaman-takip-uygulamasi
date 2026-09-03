@@ -1,37 +1,18 @@
 import { Router } from 'express'
 import { query, queryOne } from '../db.js'
 import { requireAuth } from '../auth.js'
+import { normalizeTitle, validateRange } from '../sessionRules.js'
 
 export const sessionsRouter = Router()
 sessionsRouter.use(requireAuth)
 
-const MAX_DURATION_SECONDS = 60 * 60 * 24 * 7 // tek oturum en fazla 7 gün
-
 const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next)
-
-/** ISO tarih metnini doğrular ve normalize eder. */
-function parseTime(value) {
-  const ms = Date.parse(value)
-  return Number.isNaN(ms) ? null : new Date(ms)
-}
-
-function validateRange(startRaw, endRaw) {
-  const start = parseTime(startRaw)
-  const end = parseTime(endRaw)
-  if (!start || !end) return { error: 'Başlangıç ve bitiş zamanı geçerli olmalı.' }
-
-  const duration = Math.round((end.getTime() - start.getTime()) / 1000)
-  if (duration <= 0) return { error: 'Bitiş zamanı başlangıçtan sonra olmalı.' }
-  if (duration > MAX_DURATION_SECONDS) return { error: 'Bir oturum 7 günden uzun olamaz.' }
-
-  return { start, end, duration }
-}
 
 sessionsRouter.get(
   '/',
   wrap(async (req, res) => {
     const { rows } = await query(
-      `SELECT id, start_time, end_time, duration_seconds, created_at
+      `SELECT id, title, start_time, end_time, duration_seconds, created_at
          FROM work_sessions
         WHERE user_id = $1
         ORDER BY start_time DESC`,
@@ -48,10 +29,17 @@ sessionsRouter.post(
     if (error) return res.status(400).json({ error })
 
     const session = await queryOne(
-      `INSERT INTO work_sessions (user_id, start_time, end_time, duration_seconds, created_at)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, start_time, end_time, duration_seconds, created_at`,
-      [req.user.id, start.toISOString(), end.toISOString(), duration, new Date().toISOString()]
+      `INSERT INTO work_sessions (user_id, title, start_time, end_time, duration_seconds, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, title, start_time, end_time, duration_seconds, created_at`,
+      [
+        req.user.id,
+        normalizeTitle(req.body?.title),
+        start.toISOString(),
+        end.toISOString(),
+        duration,
+        new Date().toISOString(),
+      ]
     )
 
     res.status(201).json({ session })
@@ -66,7 +54,7 @@ sessionsRouter.patch(
       id,
       req.user.id,
     ])
-    if (!current) return res.status(404).json({ error: 'Kayıt bulunamadı.' })
+    if (!current) return res.status(404).json({ error: 'Session not found.' })
 
     const { start, end, duration, error } = validateRange(
       req.body?.start_time ?? current.start_time,
@@ -74,12 +62,16 @@ sessionsRouter.patch(
     )
     if (error) return res.status(400).json({ error })
 
+    // Takvimde çoğunlukla yalnızca ad değişir; gönderilmeyen alanlar korunur.
+    const title =
+      req.body?.title === undefined ? current.title : normalizeTitle(req.body.title)
+
     const session = await queryOne(
       `UPDATE work_sessions
-          SET start_time = $1, end_time = $2, duration_seconds = $3
-        WHERE id = $4 AND user_id = $5
-        RETURNING id, start_time, end_time, duration_seconds, created_at`,
-      [start.toISOString(), end.toISOString(), duration, id, req.user.id]
+          SET title = $1, start_time = $2, end_time = $3, duration_seconds = $4
+        WHERE id = $5 AND user_id = $6
+        RETURNING id, title, start_time, end_time, duration_seconds, created_at`,
+      [title, start.toISOString(), end.toISOString(), duration, id, req.user.id]
     )
 
     res.json({ session })
@@ -93,7 +85,7 @@ sessionsRouter.delete(
       Number(req.params.id),
       req.user.id,
     ])
-    if (!rows.length) return res.status(404).json({ error: 'Kayıt bulunamadı.' })
+    if (!rows.length) return res.status(404).json({ error: 'Session not found.' })
     res.status(204).end()
   })
 )

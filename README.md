@@ -13,7 +13,7 @@ basit bir web uygulaması.
 | Backend | Express 4 |
 | Veritabanı | PostgreSQL (`pg`) |
 | Kimlik doğrulama | bcrypt ile hash + JWT |
-| Yerel kalıcılık | localStorage (yalnızca aktif sayaç durumu) |
+| Yerel kalıcılık | localStorage (oturum tokenı, tema tercihi, sekmeler arası eşitleme damgası) |
 
 Veritabanı sunucu tarafında tutulur; aynı hesapla başka bir bilgisayardan girildiğinde
 tüm kayıtlar ve notlar gelir. Native derleme gerektiren bağımlılık yoktur.
@@ -127,15 +127,22 @@ http://localhost:3001
 
 ```
 client/
+  public/
+    favicon.svg           sekme logosu (saat kuleli bina, temaya uyum sağlar)
   src/
     api.js                  fetch sarmalayıcı + token yönetimi
     App.jsx                 yönlendirme (oturum yoksa giriş ekranı)
-    components/Timer.jsx    sağ üstteki sayaç
-    components/Layout.jsx   üst bar + gezinme
+    components/Logo.jsx     saat kuleli bina (giriş ekranı ve üst bar)
+    components/Timer.jsx    sağ üstteki sayaç + "Başlat" ad kutusu
+    components/Layout.jsx   üst bar: gezinme, özetler, sayaç, hesap menüsü
+    components/WeekCalendar.jsx  haftalık takvim (yüzdeyle konumlanan bloklar)
+    components/SessionProperties.jsx  sağ sütundaki kayıt özellikleri paneli
     context/AuthContext.jsx oturum durumu
     context/SessionsContext.jsx çalışma kayıtları
-    hooks/useTimer.js       sayaç mantığı (localStorage + fark hesabı)
-    lib/time.js             süre/tarih biçimlendirme, güne göre gruplama
+    context/SelectionContext.jsx takvimde seçili kayıt
+    context/ThemeContext.jsx     açık/koyu/sistem teması
+    hooks/useTimer.js       sayaç mantığı (sunucudaki sayaç + fark hesabı)
+    lib/time.js             süre/tarih biçimlendirme, hafta ve gün yardımcıları
     pages/                  Login, SessionsPage, NotesPage
 server/
   src/
@@ -145,7 +152,8 @@ server/
     auth.js                 JWT üretimi/doğrulaması
     mailer.js               şifre sıfırlama e-postası
     rateLimit.js            IP başına istek sınırı
-    routes/                 auth, sessions, notes
+    sessionRules.js         süre/ad doğrulama (sessions ve timer ortak kullanır)
+    routes/                 auth, sessions, notes, timer
   scripts/
     import-sqlite.mjs       eski SQLite verisini Postgres'e aktarır
 api/
@@ -154,44 +162,100 @@ api/
 
 ## Sayaç nasıl çalışıyor?
 
-Sayaç açıkken yalnızca **başlangıç zamanı** localStorage'a (`zt:timer:<kullanıcı_id>`)
-yazılır. Ekranda gösterilen süre her zaman `şimdi - başlangıç` farkından hesaplanır;
-`setInterval` sadece ekranı saniyede bir tazelemek için çalışır. Bu yüzden bilgisayar
-uyku moduna girse veya tarayıcı arka plan sekmesinde `setInterval`'i kıssa da süre
-sapmaz.
+Çalışan sayaç **veritabanında** tutulur (`active_timers` tablosu, kullanıcı başına en
+fazla bir satır). Sekmeyi, tarayıcıyı ya da bilgisayarı kapatmak sayacı etkilemez;
+yalnızca kullanıcının **"Bitir"** veya **"kaydetmeden vazgeç"** demesi durdurur. Aynı
+hesapla başka bir cihazdan girildiğinde de sayaç çalışıyor görünür.
 
-Anahtar kullanıcı kimliğini içerdiği için aynı tarayıcıda farklı hesaplara geçildiğinde
-sayaçlar birbirine karışmaz. Aynı hesabın açık diğer sekmeleri `storage` olayıyla
-senkron kalır.
+Ekranda gösterilen süre her zaman `şimdi - başlangıç` farkından hesaplanır; `setInterval`
+sadece ekranı saniyede bir tazelemek için çalışır. Bu yüzden bilgisayar uyku moduna
+girse veya tarayıcı arka plan sekmesinde `setInterval`'i kıssa da süre sapmaz.
 
-"Bitir"e basıldığında oturum veritabanına yazılır ve localStorage temizlenir. Kayıt
-sırasında bir hata olursa sayaç durmaz, böylece süre kaybolmaz.
+Sayaç, sayfanın **sağ üstünde** üst barda durur. "Başlat"a basınca düğmenin hemen altında
+küçük bir kutu açılır ve isteyen kullanıcı çalışmaya bir **ad** verebilir. Ad zorunlu
+değildir: boş bırakılan kayıtlar takvimde "İsimsiz çalışma" olarak görünür. Sayaç
+çalışırken ad, süre ile birlikte üst barda gösterilir.
 
-### Sekme kapatılınca sayaç durur
+Günlük ve toplam süre özetleri de üst barda durur; ayrı bir kart alanı kaplamaz.
 
-Sayfa **yenilendiğinde** sayaç kaldığı yerden devam eder, ancak sekme **tamamen
-kapatıldığında** oturum kapanma anında bitirilmiş sayılır ve uygulama bir daha
-açıldığında veritabanına yazılır. Sayaç bileşeninde bunu bildiren bir satır çıkar
-("Sekme kapandığı için sayaç 01:00'de durduruldu, 8s 00dk kaydedildi").
+> Ad kutusu düğmeye göre `absolute` konumlanır, `fixed` **değil**. Üst barda
+> `backdrop-blur` var; `backdrop-filter`, `position: fixed` alt öğeler için kapsayıcı
+> blok oluşturduğundan sabit konumlu bir kutu ekrana değil üst barın kutusuna göre
+> yerleşip kırpılıyor. Aynı sebeple hesap menüsü de `absolute` kullanır.
 
-Bu üç durumu ayırt etmek için:
+### Sekme başlığında canlı sayaç
 
-- **Yenileme mi, kapanma mı?** `sessionStorage`'daki sekme işareti yenilemede korunur,
-  sekme kapanınca silinir.
-- **Başka sekme açık mı?** Uygulama açılışta `BroadcastChannel` üzerinden diğer sekmelere
-  "açık mısın?" diye sorar. Cevap gelirse sayaç durdurulmaz — ikinci bir sekme açmak
-  çalışan sayacı öldürmez. Kapanışı yakalamak için `pagehide`'a *güvenilmez*: sekme
-  kapatılırken bu olay tetiklenmeyebiliyor.
-- **Ne zaman durduruldu?** Açık her sekme 5 saniyede bir localStorage'a canlılık damgası
-  yazar; oturum, bu son damganın zamanında bitirilir. `pagehide` tetiklenebilirse damga
-  daha da hassaslaşır.
+Sayaç çalışırken sekmenin başlığı `00:12:34 · İşin adı` biçiminde saniyede bir
+tazelenir; uygulama arka plandayken bile geçen süre sekme çubuğundan okunur. Sayaç
+durunca başlık `Zaman Takip`'e döner.
 
-Kayıt önce localStorage'da "bekleyen" olarak tutulur, sunucuya yazılınca silinir. API o
-sırada erişilemezse kayıt kuyrukta kalır ve sonraki açılışta yeniden denenir.
+### Durdurma tek bir uçta yapılır
 
-> Not: Bu davranış, ilk şartnamedeki "sekme kapatılıp açılsa bile sayaç korunmalıdır"
-> maddesinin yerini alır. Yenileme/gezinme hâlâ sayacı korur; yalnızca sekmenin
-> kapatılması onu sonlandırır.
+"Bitir", `POST /api/timer/stop` çağırır: sunucu kaydı oluşturur **ve** çalışan sayacı
+aynı istekte siler. Ayrı çağrılar olsaydı arada bir kesinti olduğunda ya kayıt kaybolur
+ya da aynı aralık iki kez yazılabilirdi. Kayıt sırasında hata olursa sayaç durmaz,
+böylece süre kaybolmaz.
+
+Zaten çalışan bir sayaç varken `POST /api/timer` **409** döner; başka bir sekmede veya
+cihazda başlatılmış sayaç sessizce ezilmez.
+
+### Sekmeler arası eşitleme
+
+Sayaç başlatıldığında/durdurulduğunda `zt:timer-sync` anahtarına bir damga yazılır;
+aynı tarayıcının diğer sekmeleri `storage` olayıyla bunu görüp sunucudaki durumu
+yeniden okur. Başka bir cihazdaki değişiklik için sekmeye dönüldüğünde (`focus`,
+`visibilitychange`) ve dakikada bir arka planda tazeleme yapılır.
+
+> Önceki sürümde sayaç localStorage'da tutuluyor ve uygulamanın **bütün** sekmeleri
+> kapatıldığında otomatik olarak bitirilip kaydediliyordu. Açık sekmeleri izlemek için
+> `zt:tabs` altında nabız kaydı, `sessionStorage` işareti ve `pagehide` birlikte
+> kullanılıyordu; bu mekanizmanın tamamı kaldırıldı. Eski sürümden kalan çalışan bir
+> sayaç varsa ilk açılışta bir kereye mahsus sunucuya taşınır.
+
+## Haftalık takvim
+
+Çalışma kayıtları liste yerine **haftalık takvimde** gösterilir: sütunlar Pazartesi'den
+Pazar'a günler, satırlar saatler. Gösterilen saat aralığı o haftanın kayıtlarına göre
+daralır/genişler (kayıt yoksa 08:00–18:00). Çakışan oturumlar yan yana şeritlere
+yerleştirilir.
+
+Takvim **kaydırma gerektirmez**: bloklar piksel değil yüzde ile konumlanır, ızgara da
+kendisine ayrılan yüksekliği kaplar. Saat aralığı 02:00–23:00'e kadar genişlese bile
+tümü ekrana sığar. Geniş ekranda uygulama tam ekran yüksekliğine oturur ve sayfa hiç
+kaydırılmaz; dar ekranda başlık sarmalandığı için normal akışa dönülür ve takvim
+sabit bir yükseklik alır.
+
+Bir bloğa tıklamak **sağ sütunda** özellikler panelini açar: **adı**, başlangıç/bitiş
+saatini değiştirebilir veya kaydı silebilirsiniz. Panel yalnızca bir kayıt seçiliyken
+görünür; seçim yokken takvim tam genişliği kullanır. Yalnızca ad gönderildiğinde saatler
+olduğu gibi korunur. Seçim, takvim ile panelin ortak üstünde (`SelectionContext`)
+tutulur.
+
+## Sekme logosu
+
+`client/public/favicon.svg`: üzerinde büyük bir saat kadranı olan bina. Tek bir SVG,
+`prefers-color-scheme` ile iki temaya da uyum sağlar — açık sekme çubuğunda koyu bina,
+koyu sekme çubuğunda açık bina çizilir, kadran halkası her iki durumda yeşil kalır.
+Şekiller 16 px'te dağılmayacak kadar sade tutuldu; kadran, binanın üst yarısını
+kaplayacak kadar büyük.
+
+Aynı logo uygulama içinde de görünür: giriş ekranında ve üst barda "Zaman Takip"
+yazısının yanında. Bunun için `components/Logo.jsx` kullanılır — favicon işletim
+sisteminin `prefers-color-scheme` tercihini okurken uygulama teması `<html>` üzerindeki
+`dark` sınıfıyla sürüldüğü için bileşen Tailwind varyantlarıyla renklenir. **Şekiller
+iki dosyada da aynıdır; biri değişirse diğeri de güncellenmeli.**
+
+## Hesap menüsü ve tema
+
+Üst barın sağ ucunda, kullanıcının e-postasından üretilen **baş harfleri** taşıyan
+yuvarlak bir düğme durur (`ali.veli@…` → "AV"). Tıklanınca altında küçük bir menü açılır:
+e-posta adresi, açık/koyu/sistem tema seçimi ve **Çıkış yap**. Menü, dışına tıklanınca
+veya Esc ile kapanır.
+
+Tema seçimi `zt:theme` anahtarında saklanır ve açık diğer sekmelere `storage` olayıyla
+yayılır. `system` seçiliyken işletim sisteminin tercihi canlı olarak izlenir. Tercih,
+React yüklenmeden önce `index.html` içindeki küçük bir betikle uygulanır — aksi halde
+koyu tema seçiliyken ilk boyamada açık tema görünüp göz alıyor.
 
 ## API
 
@@ -207,9 +271,13 @@ yalnızca token sahibinin satırlarını görür/değiştirir.
 | POST | `/api/auth/verify-reset-code` | Kodu doğrular → `{ resetToken }` |
 | POST | `/api/auth/reset-password` | `resetToken` + yeni şifre |
 | GET | `/api/sessions` | Kayıtları listele |
-| POST | `/api/sessions` | Kayıt ekle (`start_time`, `end_time`) |
-| PATCH | `/api/sessions/:id` | Kayıt düzenle |
+| POST | `/api/sessions` | Kayıt ekle (`start_time`, `end_time`, isteğe bağlı `title`) |
+| PATCH | `/api/sessions/:id` | Kayıt düzenle (`title` ve/veya saatler) |
 | DELETE | `/api/sessions/:id` | Kayıt sil |
+| GET | `/api/timer` | Çalışan sayaç (yoksa `null`) |
+| POST | `/api/timer` | Sayacı başlat (`title`, `started_at`); çalışan varsa 409 |
+| POST | `/api/timer/stop` | Sayacı bitir: kaydı oluşturur ve sayacı siler |
+| DELETE | `/api/timer` | Sayacı kaydetmeden iptal et |
 | GET | `/api/notes` | Notları listele |
 | POST | `/api/notes` | Not ekle (`content`) |
 | PATCH | `/api/notes/:id` | Not düzenle (`content` ve/veya `is_done`) |
@@ -221,11 +289,20 @@ sunucuda hesaplanır; istemciden gelen süreye güvenilmez.
 ## Veri modeli
 
 **users**: `id`, `email` (benzersiz), `password_hash`, `created_at`, `password_changed_at`
-**work_sessions**: `id`, `user_id`, `start_time`, `end_time`, `duration_seconds`, `created_at`
+**work_sessions**: `id`, `user_id`, `title`, `start_time`, `end_time`, `duration_seconds`, `created_at`
+**active_timers**: `user_id` (birincil anahtar), `title`, `started_at` — çalışmakta olan sayaç
 **notes**: `id`, `user_id`, `content`, `is_done`, `created_at`, `updated_at`
 **password_resets**: `id`, `user_id`, `code_hash`, `expires_at`, `attempts`, `used_at`, `created_at`
 
 `user_id` alanları `ON DELETE CASCADE` ile `users`'a bağlıdır.
+
+Şema `CREATE TABLE IF NOT EXISTS` ile kurulduğu için sonradan eklenen `title` sütunu
+`db.js` içindeki ayrı bir `ALTER TABLE … ADD COLUMN IF NOT EXISTS` bloğunda tanımlıdır;
+her açılışta güvenle çalışır ve mevcut veritabanlarını günceller.
+
+> Kaldırılan kullanıcı panelinden kalan `users.last_seen_at` sütunu, daha önce
+> kurulmuş veritabanlarında durmaya devam eder; hiçbir kod ona dokunmaz. Temizlemek
+> isterseniz: `ALTER TABLE users DROP COLUMN last_seen_at;`
 
 ## Şifre sıfırlama güvenliği
 
@@ -253,4 +330,12 @@ sunucuda hesaplanır; istemciden gelen süreye güvenilmez.
   olduğunu dolaylı olarak ele verir — hata mesajının kullanışlılığı için kabul edilen
   bilinçli bir ödünleşme.
 - Kayıtlar güne göre **başlangıç saatine** göre gruplanır; gece yarısını aşan bir oturum
-  (17:00 → 01:00) başladığı günün altında tek satır olarak görünür.
+  (17:00 → 01:00) başladığı günün sütununda görünür ve blok gün sonunda kesilir —
+  ertesi güne taşan kısım takvimde çizilmez, süre toplamları doğru kalır.
+- Uygulamada kullanıcılar birbirini görmez; her hesap yalnızca kendi kayıtlarına ve
+  notlarına erişir.
+- Sayaç yalnızca kullanıcı durdurduğunda durur. Unutulan bir sayaç günlerce çalışır ve
+  7 günü aştığında `POST /api/timer/stop` "Bir oturum 7 günden uzun olamaz." hatası
+  verir; bu durumda kayıt "kaydetmeden vazgeç" ile iptal edilmelidir.
+- Sayacın başlangıç/bitiş zamanını istemci gönderir (uygulamanın geri kalanı da öyle
+  çalışıyor). Cihazın saati belirgin şekilde yanlışsa kaydedilen saatler de kayar.

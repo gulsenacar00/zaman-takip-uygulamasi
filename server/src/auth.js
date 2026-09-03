@@ -27,8 +27,8 @@ function loadSecret() {
     if (fromFile) {
       if (process.env.NODE_ENV === 'production') {
         console.warn(
-          'UYARI: JWT_SECRET tanımlı değil, anahtar dosyadan okundu. Yayında bu\n' +
-            '       dosya kalıcı olmayabilir; panelden JWT_SECRET ayarlayın.'
+          'WARNING: JWT_SECRET is not set, so the key was read from a file. In production\n' +
+            '         this file may not persist; set JWT_SECRET from your host panel.'
         )
       }
       return fromFile
@@ -38,9 +38,9 @@ function loadSecret() {
   }
 
   console.warn(
-    'UYARI: JWT_SECRET tanımlı değil ve anahtar diske yazılamadı. Geçici bir\n' +
-      '       anahtar üretildi: sunucu her yeniden başladığında tüm kullanıcıların\n' +
-      '       oturumu kapanacak. Panelden JWT_SECRET ortam değişkenini ayarlayın.'
+    'WARNING: JWT_SECRET is not set and the key could not be written to disk. A\n' +
+      '         temporary key was generated: every restart will sign all users out.\n' +
+      '         Set the JWT_SECRET environment variable from your host panel.'
   )
   return randomBytes(48).toString('hex')
 }
@@ -76,31 +76,31 @@ export function verifyResetToken(token) {
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : null
-  if (!token) return res.status(401).json({ error: 'Giriş yapmanız gerekiyor.' })
+  if (!token) return res.status(401).json({ error: 'You need to sign in.' })
 
   let payload
   try {
     payload = jwt.verify(token, SECRET)
   } catch {
-    return res.status(401).json({ error: 'Oturum süresi dolmuş, tekrar giriş yapın.' })
+    return res.status(401).json({ error: 'Your session has expired, please sign in again.' })
   }
 
   // Şifre sıfırlama tokenı normal isteklerde kullanılamaz.
-  if (payload.purpose) return res.status(401).json({ error: 'Geçersiz oturum.' })
+  if (payload.purpose) return res.status(401).json({ error: 'Invalid session.' })
 
   try {
     const user = await queryOne(
       'SELECT id, email, password_changed_at FROM users WHERE id = $1',
       [payload.sub]
     )
-    if (!user) return res.status(401).json({ error: 'Geçersiz oturum.' })
+    if (!user) return res.status(401).json({ error: 'Invalid session.' })
 
     // Şifre değiştiyse o andan önce üretilmiş tokenlar geçersizdir.
     const changedAt = user.password_changed_at
       ? Math.floor(Date.parse(user.password_changed_at) / 1000)
       : 0
     if (changedAt > payload.iat) {
-      return res.status(401).json({ error: 'Şifreniz değişti, tekrar giriş yapın.' })
+      return res.status(401).json({ error: 'Your password changed, please sign in again.' })
     }
 
     req.user = { id: user.id, email: user.email }

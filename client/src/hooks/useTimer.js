@@ -1,220 +1,128 @@
 import { useCallback, useEffect, useState } from 'react'
+import { api } from '../api.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSessions } from '../context/SessionsContext.jsx'
 
-const timerKey = (userId) => `zt:timer:${userId}`
-const pendingKey = (userId) => `zt:pending:${userId}`
-const tabMarkerKey = (userId) => `zt:tab-session:${userId}`
-
-const LAST_SEEN_KEY = 'zt:last-seen' // en son bir sekmenin canlı olduğu an
-const LAST_CLOSE_KEY = 'zt:last-close' // kapanışı yakalayabildiğimiz an (garanti değil)
-
-const HEARTBEAT_MS = 5_000
-const TAB_CHANNEL = 'zt:tabs'
-const PING_WAIT_MS = 300
-
-// Bu sayfa yüklemesine ait kimlik: kendi ping'imize kendimiz cevap vermeyelim.
-const TAB_ID = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-// Sayacın akıbeti sayfa yükleme başına bir kez kararlaştırılır (StrictMode'un
-// efektleri iki kez çalıştırması kaydı iki kez oluşturmasın).
-const resolvedUsers = new Set()
-
-function readStart(storageKey) {
-  if (!storageKey) return null
-  const raw = localStorage.getItem(storageKey)
-  if (!raw) return null
-  // Bozuk/eski bir değer sayacı sonsuza kadar kilitlemesin.
-  if (Number.isNaN(Date.parse(raw))) {
-    localStorage.removeItem(storageKey)
-    return null
-  }
-  return raw
-}
-
-function readTime(key) {
-  const value = Number(localStorage.getItem(key))
-  return Number.isFinite(value) ? value : 0
-}
-
-/** sessionStorage sekme kapanınca silinir, yenilemede korunur. */
-function isSameTabSession(userId) {
-  const key = tabMarkerKey(userId)
-  const existed = sessionStorage.getItem(key) !== null
-  sessionStorage.setItem(key, '1')
-  return existed
-}
-
 /**
- * Açık başka bir sekme var mı diye sorar.
- *
- * Kapanışı `pagehide` ile yakalamaya güvenmiyoruz: sekme kapatılırken bu olay
- * tetiklenmeyebiliyor. Onun yerine doğrudan soruyoruz — cevap veren yoksa
- * uygulamanın açık başka bir sekmesi yok demektir.
+ * Aynı tarayıcıdaki diğer sekmelere "sayaç değişti, tazele" demek için kullanılan
+ * işaret. Değerin kendisi önemsiz; yalnızca `storage` olayını tetikler.
  */
-function askOtherTabs() {
-  if (typeof BroadcastChannel === 'undefined') {
-    // Yedek ölçüt: yakın zamanda nabız atan bir sekme var mı?
-    return Promise.resolve(Date.now() - readTime(LAST_SEEN_KEY) < HEARTBEAT_MS * 2)
-  }
+const SYNC_KEY = 'zt:timer-sync'
 
-  return new Promise((resolve) => {
-    const channel = new BroadcastChannel(TAB_CHANNEL)
-    let settled = false
-    const finish = (alive) => {
-      if (settled) return
-      settled = true
-      channel.close()
-      resolve(alive)
-    }
+/** Başka cihazda başlatılan/durdurulan sayacı da yakalamak için arka plan tazelemesi. */
+const POLL_MS = 60_000
 
-    channel.onmessage = (event) => {
-      const data = event.data
-      if (data?.from !== TAB_ID && data?.type === 'pong') finish(true)
-    }
-    channel.postMessage({ type: 'ping', from: TAB_ID })
-    setTimeout(() => finish(false), PING_WAIT_MS)
-  })
+// Sayaç eskiden localStorage'da tutuluyordu. Sürüm geçişinde çalışan bir sayaç
+// kaybolmasın diye bu anahtarlar bir kereye mahsus sunucuya taşınır.
+const legacyStartKey = (userId) => `zt:timer:${userId}`
+const legacyTitleKey = (userId) => `zt:timer-title:${userId}`
+
+function readLegacyTimer(userId) {
+  const raw = localStorage.getItem(legacyStartKey(userId))
+  if (!raw || Number.isNaN(Date.parse(raw))) return null
+  return { started_at: raw, title: localStorage.getItem(legacyTitleKey(userId)) || '' }
+}
+
+function clearLegacyTimer(userId) {
+  localStorage.removeItem(legacyStartKey(userId))
+  localStorage.removeItem(legacyTitleKey(userId))
+}
+
+/** Diğer sekmeleri uyar. */
+function announce() {
+  localStorage.setItem(SYNC_KEY, String(Date.now()))
 }
 
 /**
- * Sekme kapatıldığı için sayacı sonlandırır: oturum, son canlı anda bitmiş
- * sayılır ve "bekleyen kayıt" olarak saklanır.
- * @returns {boolean} kaydedilecek bir oturum oluştu mu
- */
-function finalizeClosedSession(userId, startedAt) {
-  const closedAt = Math.max(readTime(LAST_CLOSE_KEY), readTime(LAST_SEEN_KEY))
-  localStorage.removeItem(timerKey(userId))
-
-  // Bir saniyeden kısa oturumu kaydetmiyoruz (sunucu da kabul etmez).
-  if (closedAt - Date.parse(startedAt) < 1000) return false
-
-  localStorage.setItem(
-    pendingKey(userId),
-    JSON.stringify({ start_time: startedAt, end_time: new Date(closedAt).toISOString() })
-  )
-  return true
-}
-
-/**
- * Sayaç durumu localStorage'da saklanır ve geçen süre her zaman
- * "şimdi - başlangıç" farkından hesaplanır; setInterval yalnızca ekranı
- * tazelemek için çalışır. Böylece bilgisayar uyusa da süre doğru kalır.
+ * Çalışan sayaç **veritabanında** tutulur. Sekmeyi, tarayıcıyı ya da bilgisayarı
+ * kapatmak sayacı etkilemez; yalnızca kullanıcının "Bitir" veya "kaydetmeden
+ * vazgeç" demesi durdurur. Aynı hesapla başka bir cihazdan girildiğinde de sayaç
+ * çalışmaya devam ediyor görünür.
  *
- * Sekme tamamen kapatıldığında sayaç durur: oturum, sekmenin kapandığı anda
- * bitirilmiş sayılır ve uygulama bir daha açıldığında kaydedilir. Sayfayı
- * yenilemek veya uygulamayı ikinci bir sekmede açmak sayacı durdurmaz.
+ * Ekranda gösterilen süre her zaman `şimdi - başlangıç` farkından hesaplanır;
+ * `setInterval` yalnızca ekranı tazelemek için çalışır, bu yüzden bilgisayar
+ * uyusa da süre sapmaz.
  */
 export function useTimer() {
   const { user } = useAuth()
-  const { createSession } = useSessions()
+  const { addSession } = useSessions()
   const userId = user?.id ?? null
-  const storageKey = userId ? timerKey(userId) : null
 
-  const [startedAt, setStartedAt] = useState(() => readStart(storageKey))
+  const [startedAt, setStartedAt] = useState(null)
+  const [title, setTitle] = useState('')
   const [now, setNow] = useState(() => Date.now())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [autoStopped, setAutoStopped] = useState(null)
 
-  /** Sekme kapandığı için bitirilmiş oturumu sunucuya yazar. */
-  const flushPending = useCallback(() => {
+  const apply = useCallback((timer) => {
+    setStartedAt(timer?.started_at ?? null)
+    setTitle(timer?.title ?? '')
+  }, [])
+
+  /** Sunucudaki sayacı okur; ilk açılışta eski yerel sayacı da taşır. */
+  const reload = useCallback(async () => {
     if (!userId) return
-    const raw = localStorage.getItem(pendingKey(userId))
-    if (!raw) return
-
-    let record
     try {
-      record = JSON.parse(raw)
-    } catch {
-      record = null
-    }
-    if (!record?.start_time || !record?.end_time) {
-      localStorage.removeItem(pendingKey(userId))
-      return
-    }
-
-    // Kaydı hemen kuyruktan alıyoruz ki iki kez gönderilmesin; hata olursa
-    // geri koyup bir sonraki açılışta tekrar deniyoruz (veri kaybolmasın).
-    localStorage.removeItem(pendingKey(userId))
-    createSession(record.start_time, record.end_time)
-      .then(() => setAutoStopped(record))
-      .catch(() => localStorage.setItem(pendingKey(userId), raw))
-  }, [userId, createSession])
-
-  // Diğer sekmelerin "açık mısın?" sorusunu yanıtla.
-  useEffect(() => {
-    if (typeof BroadcastChannel === 'undefined') return
-    const channel = new BroadcastChannel(TAB_CHANNEL)
-    channel.onmessage = (event) => {
-      const data = event.data
-      if (data?.from !== TAB_ID && data?.type === 'ping') {
-        channel.postMessage({ type: 'pong', from: TAB_ID })
-      }
-    }
-    return () => channel.close()
-  }, [])
-
-  // Bu sekmenin canlı olduğunu duyur; yakalayabilirsek kapanış anını damgala.
-  useEffect(() => {
-    const beat = () => localStorage.setItem(LAST_SEEN_KEY, String(Date.now()))
-    const onPageHide = (event) => {
-      if (event.persisted) return // bfcache'e alınıyor, kapanmıyor
-      const stamp = String(Date.now())
-      localStorage.setItem(LAST_SEEN_KEY, stamp)
-      localStorage.setItem(LAST_CLOSE_KEY, stamp)
-    }
-
-    beat()
-    const id = setInterval(beat, HEARTBEAT_MS)
-    window.addEventListener('pagehide', onPageHide)
-    return () => {
-      clearInterval(id)
-      window.removeEventListener('pagehide', onPageHide)
-    }
-  }, [])
-
-  // Sayfa açılışında sayacın akıbetine karar ver.
-  useEffect(() => {
-    if (!userId) {
-      setStartedAt(null)
-      return
-    }
-
-    const stored = readStart(timerKey(userId))
-    if (resolvedUsers.has(userId)) {
-      setStartedAt(stored)
-      return
-    }
-    resolvedUsers.add(userId)
-
-    // Yenileme / uygulama içi gezinme: sayaç kaldığı yerden devam eder.
-    if (!stored || isSameTabSession(userId)) {
-      setStartedAt(stored)
-      return
-    }
-
-    askOtherTabs().then((alive) => {
-      if (alive) {
-        setStartedAt(stored)
+      const data = await api('/timer')
+      if (data.timer) {
+        apply(data.timer)
+        clearLegacyTimer(userId)
         return
       }
-      const hasRecord = finalizeClosedSession(userId, stored)
-      setStartedAt(null)
-      if (hasRecord) flushPending()
-    })
-  }, [userId, flushPending])
 
-  // Önceki denemede sunucuya yazılamamış kayıt varsa tekrar dene.
+      const legacy = readLegacyTimer(userId)
+      if (!legacy) {
+        apply(null)
+        return
+      }
+
+      const moved = await api('/timer', { method: 'POST', body: legacy })
+      clearLegacyTimer(userId)
+      apply(moved.timer)
+      announce()
+    } catch {
+      // Ağ hatasında ekrandaki durumu bozmuyoruz; sonraki tazelemede düzelir.
+    }
+  }, [userId, apply])
+
   useEffect(() => {
-    flushPending()
-  }, [flushPending])
+    if (!userId) {
+      apply(null)
+      return
+    }
+    reload()
+  }, [userId, reload, apply])
+
+  // Diğer sekmeler, sekmeye dönüş ve arka plan tazelemesi.
+  useEffect(() => {
+    if (!userId) return
+
+    const onStorage = (event) => {
+      if (event.key === SYNC_KEY) reload()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reload()
+    }
+
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', reload)
+    document.addEventListener('visibilitychange', onVisible)
+    const id = setInterval(reload, POLL_MS)
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', reload)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(id)
+    }
+  }, [userId, reload])
 
   // Ekranı saniyede bir tazele; sekmeye dönüldüğünde anında güncelle
   // (arka plan sekmelerinde interval kısılabiliyor).
   useEffect(() => {
     if (!startedAt) return
     const tick = () => setNow(Date.now())
+    tick()
     const id = setInterval(tick, 1000)
     window.addEventListener('focus', tick)
     document.addEventListener('visibilitychange', tick)
@@ -225,68 +133,81 @@ export function useTimer() {
     }
   }, [startedAt])
 
-  // Aynı hesabın açık diğer sekmeleriyle senkron kal.
-  useEffect(() => {
-    if (!storageKey) return
-    const onStorage = (event) => {
-      if (event.key !== storageKey) return
-      setStartedAt(readStart(storageKey))
-      setNow(Date.now())
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [storageKey])
-
-  const start = useCallback(() => {
-    if (!storageKey || startedAt) return
-    const iso = new Date().toISOString()
-    localStorage.setItem(storageKey, iso)
-    setStartedAt(iso)
-    setNow(Date.now())
-    setError('')
-    setAutoStopped(null)
-  }, [storageKey, startedAt])
+  const start = useCallback(
+    async (name = '') => {
+      if (startedAt || saving) return
+      setSaving(true)
+      setError('')
+      try {
+        const data = await api('/timer', {
+          method: 'POST',
+          body: { title: name.trim(), started_at: new Date().toISOString() },
+        })
+        apply(data.timer)
+        setNow(Date.now())
+        announce()
+      } catch (err) {
+        setError(err.message)
+        // Başka bir sekmede/cihazda başlatılmış olabilir; gerçek durumu alalım.
+        reload()
+      } finally {
+        setSaving(false)
+      }
+    },
+    [startedAt, saving, apply, reload]
+  )
 
   const stop = useCallback(async () => {
     if (!startedAt || saving) return
     const endMs = Date.now()
     if (endMs - Date.parse(startedAt) < 1000) {
-      setError('Kaydetmek için en az 1 saniye çalışması gerekiyor.')
+      setError('The timer must run for at least 1 second to be saved.')
       return
     }
 
     setSaving(true)
     setError('')
     try {
-      await createSession(startedAt, new Date(endMs).toISOString())
-      localStorage.removeItem(storageKey)
-      setStartedAt(null)
+      const data = await api('/timer/stop', {
+        method: 'POST',
+        body: { end_time: new Date(endMs).toISOString() },
+      })
+      addSession(data.session)
+      apply(null)
+      announce()
     } catch (err) {
       // Kayıt başarısızsa sayaç durmuyor; kullanıcı tekrar deneyebilir.
       setError(err.message)
     } finally {
       setSaving(false)
     }
-  }, [startedAt, saving, storageKey, createSession])
+  }, [startedAt, saving, addSession, apply])
 
   /** Yanlışlıkla başlatılan sayacı kaydetmeden iptal eder. */
-  const discard = useCallback(() => {
-    if (!storageKey) return
-    localStorage.removeItem(storageKey)
-    setStartedAt(null)
+  const discard = useCallback(async () => {
+    if (!startedAt || saving) return
+    setSaving(true)
     setError('')
-  }, [storageKey])
+    try {
+      await api('/timer', { method: 'DELETE' })
+      apply(null)
+      announce()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }, [startedAt, saving, apply])
 
-  const elapsedSeconds = startedAt ? Math.floor((now - Date.parse(startedAt)) / 1000) : 0
+  const elapsedSeconds = startedAt ? Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000)) : 0
 
   return {
     startedAt,
     running: !!startedAt,
     elapsedSeconds,
+    title,
     saving,
     error,
-    autoStopped,
-    dismissAutoStopped: () => setAutoStopped(null),
     start,
     stop,
     discard,
