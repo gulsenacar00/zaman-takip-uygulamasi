@@ -255,7 +255,31 @@ veya Esc ile kapanır.
 Tema seçimi `zt:theme` anahtarında saklanır ve açık diğer sekmelere `storage` olayıyla
 yayılır. `system` seçiliyken işletim sisteminin tercihi canlı olarak izlenir. Tercih,
 React yüklenmeden önce `index.html` içindeki küçük bir betikle uygulanır — aksi halde
-koyu tema seçiliyken ilk boyamada açık tema görünüp göz alıyor.
+ilk boyamada yanlış tema görünüp göz alıyor. **Varsayılan koyudur** (Santoryu
+arayüzlerinin standardı); kullanıcı menüden açık ya da sisteme uyan temayı seçebilir.
+
+## Renk paleti
+
+Renkler santoryu.net'in arayüzündeki `--mm-*` (mindmap) token'larından alınır; koyu
+uçlar birebir aynıdır:
+
+| Rol | Değer |
+|---|---|
+| Zemin | `#0a0e0b` |
+| Panel / yükseltilmiş panel | `#10160f` / `#161d15` |
+| Çizgi | `#222b21` |
+| Metin / soluk metin | `#e4ebe2` / `#8b968a` |
+| Vurgu / vurgu üzeri metin | `#35d073` / `#04170c` |
+| Hata / uyarı | `#f07a70` / `#e8b054` |
+
+Palet, `index.css` içindeki `@theme` bloğunda Tailwind'in `slate` / `emerald` / `rose` /
+`amber` ölçekleri olarak tanımlıdır. Bileşenler zaten bu adları kullandığı için tek
+yerden yapılan bu tanım tüm uygulamayı kapsar; ölçeklerin nötr uçları hafif yeşile çalar,
+böylece açık tema da aynı markanın parçası gibi durur.
+
+Vurgulu düğmeler Santoryu'nun kalıbını izler: **parlak yeşil zemin + koyu metin**
+(`#35d073` üzerine `#04170c`, kontrast 9.2). Beyaz metinli yeşil düğme hem markaya
+uymuyor hem de kontrastı düşük kalıyordu.
 
 ## API
 

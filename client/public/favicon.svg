@@ -1,20 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Clock tower building">
-  <title>Time Tracker</title>
+  <title>Focus</title>
   <style>
     /*
      * Sekme çubuğunun rengi tarayıcı temasına göre değiştiği için logo da
      * uyum sağlar: "ink" bina gövdesi, "paper" ise saat kadranı ve kapı.
      */
-    .ink { fill: #0f172a; }
-    .paper { fill: #ffffff; }
-    .bezel { fill: #059669; }
-    .hand { stroke: #0f172a; stroke-width: 1.6; stroke-linecap: round; }
+    .ink { fill: #10160f; }
+    .paper { fill: #f5f8f4; }
+    .bezel { fill: #157f45; }
+    .hand { stroke: #10160f; stroke-width: 1.6; stroke-linecap: round; }
 
     @media (prefers-color-scheme: dark) {
-      .ink { fill: #e2e8f0; }
-      .paper { fill: #0f172a; }
-      .bezel { fill: #34d399; }
-      .hand { stroke: #e2e8f0; }
+      .ink { fill: #e4ebe2; }
+      .paper { fill: #10160f; }
+      .bezel { fill: #35d073; }
+      .hand { stroke: #e4ebe2; }
     }
   </style>
 

@@ -138,7 +138,7 @@ export default function Layout() {
             <div className="flex items-center gap-2">
               <Logo className="size-6 shrink-0" />
               <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                Time Tracker
+                Focus
               </h1>
             </div>
             <nav className="mt-1.5 flex gap-1">

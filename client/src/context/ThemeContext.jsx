@@ -10,7 +10,8 @@ const prefersDark = () =>
 
 function readStoredMode() {
   const stored = localStorage.getItem(STORAGE_KEY)
-  return MODES.includes(stored) ? stored : 'system'
+  // Varsayılan koyudur: Santoryu arayüzlerinin standardı koyu tema.
+  return MODES.includes(stored) ? stored : 'dark'
 }
 
 /**

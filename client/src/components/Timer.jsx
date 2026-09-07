@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTimer } from '../hooks/useTimer.js'
 import { formatClock, formatStopwatch } from '../lib/time.js'
 
-const BASE_TITLE = 'Time Tracker'
+const BASE_TITLE = 'Focus'
 
 /**
  * "Başlat"ın hemen altında açılan küçük kutu. Ad zorunlu değildir.
@@ -54,8 +54,8 @@ function StartPopover({ onStart, onCancel }) {
         <button
           type="button"
           onClick={() => onStart(value)}
-          className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white
-            transition hover:bg-emerald-700"
+          className="flex-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-emerald-950
+            transition hover:bg-emerald-400"
         >
           Start
         </button>
@@ -117,9 +117,13 @@ export default function Timer() {
             onClick={running ? stop : () => setAsking((open) => !open)}
             disabled={saving}
             aria-expanded={running ? undefined : asking}
-            className={`min-w-[104px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition
+            className={`min-w-[104px] rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm transition
               disabled:cursor-not-allowed disabled:opacity-60
-              ${running ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+              ${
+                running
+                  ? 'bg-rose-600 text-white hover:bg-rose-700'
+                  : 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400'
+              }`}
           >
             {saving ? 'Saving…' : running ? 'Stop' : 'Start'}
           </button>

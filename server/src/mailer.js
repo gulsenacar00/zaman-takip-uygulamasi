@@ -35,7 +35,7 @@ export async function sendResetCode(email, code, minutesValid) {
   await transporter.sendMail({
     from,
     to: email,
-    subject: `Time Tracker password reset code: ${code}`,
+    subject: `Focus password reset code: ${code}`,
     text:
       `Your verification code for resetting your password: ${code}\n\n` +
       `The code is valid for ${minutesValid} minutes.\n` +
